@@ -1,21 +1,32 @@
 <div x-data="{
-    draggingElement: null, // Elemen yang sedang di-drag
-    offsetX: 0, // Offset horizontal antara posisi mouse dan elemen
-    offsetY: 0, // Offset vertikal antara posisi mouse dan elemen
-    gridSize: 20, // Ukuran grid
-    snapThreshold: 10, // Batas jarak di mana elemen akan snap ke grid atau elemen lain
-    elementOrder: [], // Simpan urutan elemen untuk dikirim ke server saat klik save
+    draggingElement: null,
+    offsetX: 0,
+    offsetY: 0,
+    gridSize: 20,
+    snapThreshold: 10,
+    elementOrder: [],
 
     startDrag(event) {
-        this.draggingElement = event.target; // Set elemen yang di-drag
-        this.offsetX = event.clientX - this.draggingElement.getBoundingClientRect().left;
-        this.offsetY = event.clientY - this.draggingElement.getBoundingClientRect().top;
+        if (event.touches) {
+            event.preventDefault(); // Mencegah perilaku default
+            this.draggingElement = event.target;
+            this.offsetX = event.touches[0].clientX - this.draggingElement.getBoundingClientRect().left;
+            this.offsetY = event.touches[0].clientY - this.draggingElement.getBoundingClientRect().top;
+        } else {
+            this.draggingElement = event.target;
+            this.offsetX = event.clientX - this.draggingElement.getBoundingClientRect().left;
+            this.offsetY = event.clientY - this.draggingElement.getBoundingClientRect().top;
+        }
+        this.draggingElement.style.transition = 'none'; // Hapus transisi saat drag
     },
 
     drag(event) {
         if (this.draggingElement) {
-            let left = event.clientX - this.offsetX;
-            let top = event.clientY - this.offsetY;
+            let clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            let clientY = event.touches ? event.touches[0].clientY : event.clientY;
+
+            let left = clientX - this.offsetX;
+            let top = clientY - this.offsetY;
 
             let snappedLeft = Math.round(left / this.gridSize) * this.gridSize;
             let snappedTop = Math.round(top / this.gridSize) * this.gridSize;
@@ -38,42 +49,67 @@
             this.draggingElement.style.left = `${snappedLeft}px`;
             this.draggingElement.style.top = `${snappedTop}px`;
 
-            // Update posisi elemen yang sedang di-drag dalam elementOrder
             const id = this.draggingElement.dataset.id;
-            this.elementOrder = this.elementOrder.map(item => item.id === id ? { id, left: snappedLeft, top: snappedTop } : item);
-            if (!this.elementOrder.find(item => item.id === id)) {
-                this.elementOrder.push({ id, left: snappedLeft, top: snappedTop });
-            }
+            this.elementOrder = this.elementOrder.filter(item => item.id !== id);
+            this.elementOrder.push({ id, left: snappedLeft, top: snappedTop });
         }
     },
 
     stopDrag() {
-        this.draggingElement = null;
-        document.getElementById('horizontal-guide').style.display = 'none';
-        document.getElementById('vertical-guide').style.display = 'none';
+        if (this.draggingElement) {
+            this.draggingElement.style.transition = ''; // Kembalikan transisi
+            this.draggingElement = null;
+            document.getElementById('horizontal-guide').style.display = 'none';
+            document.getElementById('vertical-guide').style.display = 'none';
+        }
     },
 
     savePositions() {
-        // Kirim data posisi ke Livewire
-        @this.call('updateElementPositions', this.elementOrder);
+        @this.call('updateElementPositions', this.elementOrder)
+            .then(response => {
+                console.log('Positions saved successfully:', response);
+            })
+            .catch(error => {
+                console.error('Error saving positions:', error);
+            });
+    },
+
+    init() {
+        window.addEventListener('touchstart', (event) => {
+            this.startDrag(event); // Menggunakan touch pertama
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (event) => {
+            this.drag(event); // Menggunakan touch pertama
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => {
+            this.stopDrag();
+        }, { passive: false });
+
+        window.addEventListener('mousedown', (event) => {
+            this.startDrag(event);
+        });
+
+        window.addEventListener('mousemove', (event) => {
+            this.drag(event);
+        });
+
+        window.addEventListener('mouseup', () => {
+            this.stopDrag();
+        });
     }
 }" 
 
-x-on:mousemove.window="drag($event)"
-x-on:mouseup.window="stopDrag()">
+x-init="init">
 
-    <!-- Container untuk elemen yang bisa dipindahkan -->
     <div class="relative w-full min-h-[90vh] overflow-scroll">
-        <!-- Garis panduan horizontal -->
         <div id="horizontal-guide" class="absolute bg-blue-500" style="width: 100%; height: 2px; display: none;"></div>
-        <!-- Garis panduan vertikal -->
         <div id="vertical-guide" class="absolute bg-blue-500" style="height: 100%; width: 2px; display: none;"></div>
 
-        <!-- Elemen yang bisa dipindahkan -->
         @foreach($elements as $element)
             <div class="draggable absolute bg-gray-200 p-2" 
                  style="left: {{ $element->x }}px; top: {{ $element->y }}px;" 
-                 x-on:mousedown="startDrag($event)" 
                  x-data="{ id: {{ $element->id }} }"
                  data-id="{{ $element->id }}">
                 {{ $element->name }}
@@ -81,10 +117,8 @@ x-on:mouseup.window="stopDrag()">
         @endforeach
     </div>
 
-    <!-- Tombol Save -->
     <button @click="savePositions()" class="mt-4 bg-blue-500 text-white p-2 rounded">Save</button>
 
-    <!-- Form atau elemen lain -->
     <div>
         <form class="grid" action="">
             <input type="text" name="" id="">
